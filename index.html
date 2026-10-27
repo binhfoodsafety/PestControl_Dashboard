@@ -435,6 +435,17 @@ td[contenteditable="true"] {
   display: none; align-items: center; gap: 12px; font-size: 13px;
 }
 #auditModeBar.active { display: flex; }
+/* ── DEMO MODE BAR ── */
+#demoBar {
+  display: none; position: sticky; top: var(--header-h); z-index: 79;
+  background: var(--bg-card); border-bottom: 2px solid var(--accent-blue);
+  padding: 10px 24px; align-items: center; gap: 12px; font-size: 13px; flex-wrap: wrap;
+}
+#demoBar.active { display: flex; }
+#demoBar .demo-step { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+#demoBar .demo-text { flex: 1; min-width: 220px; color: var(--text-secondary); }
+#demoBar .demo-text strong { color: var(--text-primary); }
+#demoBar .btn { padding: 4px 12px; font-size: 11px; }
 .print-only { display: none !important; }
 @media print {
   .sidebar,.header,.header-controls,.btn,.filter-row { display: none !important; }
@@ -867,6 +878,7 @@ td[contenteditable="true"]:focus { background: var(--ild-field-bg); outline: var
     <button class="icon-btn" onclick="toggleSidebar()" style="display:none" id="menuBtn"><i class="fas fa-bars"></i></button>
     <div class="header-title" id="headerTitle">Executive Dashboard <span>/ Overview</span></div>
     <div class="header-controls">
+      <button class="btn btn-primary" id="demoBtn" onclick="toggleDemo()" title="Xem dữ liệu demo — không ghi lên server"><i class="fas fa-play"></i> Demo</button>
       <button class="btn btn-audit" onclick="toggleAuditMode()"><i class="fas fa-eye"></i> Audit View</button>
       <button class="btn" onclick="exportPDF()"><i class="fas fa-file-pdf"></i> PDF</button>
       <button class="btn" onclick="window.print()"><i class="fas fa-print"></i> Print</button>
@@ -878,6 +890,13 @@ td[contenteditable="true"]:focus { background: var(--ild-field-bg); outline: var
     <i class="fas fa-eye"></i>
     <strong>AUDIT VIEW MODE</strong> — Showing compliance summary for BRCGS / FSSC 22000 / AIB
     <button class="btn" style="margin-left:auto;padding:4px 12px;font-size:11px;" onclick="toggleAuditMode()">Exit Audit Mode</button>
+  </div>
+  <div id="demoBar" role="region" aria-label="Demo">
+    <span class="demo-step" id="demoStep"></span>
+    <div class="demo-text" id="demoText"></div>
+    <button class="btn" id="demoPrev" onclick="demoGo(-1)"><i class="fas fa-chevron-left"></i> Trước</button>
+    <button class="btn btn-primary" id="demoNext" onclick="demoGo(1)">Tiếp <i class="fas fa-chevron-right"></i></button>
+    <button class="btn" onclick="toggleDemo()"><i class="fas fa-xmark"></i> Thoát demo</button>
   </div>
 
   <div class="page-content">
@@ -1452,6 +1471,112 @@ function generateSampleData() {
   return data;
 }
 
+// ── DEMO DATA ──
+// Dựng theo báo cáo ILD Coffee 03/2025 (Nguyễn Dương PCO): tổng tháng T01–T03 lấy từ báo cáo,
+// T04–T12, cơ cấu loài và phân bổ đèn/bẫy là giả lập (cố định seed) để mọi chart đều có số liệu.
+function buildDemoData() {
+  let seed = 20250304;
+  const rnd = () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = (t + Math.imul(t ^ t >>> 7, 61 | t)) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  // Chia n theo trọng số (có nhiễu nhẹ) mà vẫn giữ đúng tổng
+  const split = (n, weights) => {
+    const w = weights.map(x => x * (0.85 + rnd() * 0.3));
+    const s = w.reduce((a, b) => a + b, 0) || 1;
+    const raw = w.map(x => n * x / s);
+    const out = raw.map(Math.floor);
+    const rest = n - out.reduce((a, b) => a + b, 0);
+    raw.map((v, i) => [v - Math.floor(v), i]).sort((a, b) => b[0] - a[0]).slice(0, rest).forEach(([, i]) => out[i]++);
+    return out;
+  };
+  const INSPECTORS = ['KTV Nguyễn Dương – Tổ 1', 'KTV Nguyễn Dương – Tổ 2', 'QA ILD'];
+  const records = [];
+  let id = 1;
+  const add = (m, area, pestType, count, trapId, trapType, target, notes = '') => {
+    if (count <= 0 && !notes) return;
+    records.push({ id: id++, month: MONTHS[m], year: 2025, monthNum: m + 1, area, pestType, count, trapId, trapType, target,
+      inspector: INSPECTORS[Math.floor(rnd() * INSPECTORS.length)], notes });
+  };
+
+  // A. Côn trùng bay — đèn bẫy. T01–T03 = 117/114/116 (báo cáo), T07 vượt target 200.
+  const FLY = [117, 114, 116, 128, 152, 178, 214, 196, 170, 149, 131, 120];
+  const LIGHT = [
+    ['Raw Material WH', ['L01', 'L02', 'L03', 'L04'], [1.6, 1, 0.8, 0.6], 0.59],
+    ['Finished Goods WH', ['L05', 'L06'], [1, 0.8], 0.15],
+    ['Roasting', ['L07'], [1], 0.06],
+    ['Packing', ['L08', 'L09'], [1, 0.7], 0.08],
+    ['Tipping', ['L10'], [1], 0.07],
+    ['Office/Canteen', ['L11'], [1], 0.03],
+    ['Utilities', ['L12'], [1], 0.02],
+  ];
+  FLY.forEach((total, m) => {
+    const rainy = m >= 5 && m <= 8;
+    const byType = split(total, rainy ? [0.70, 0.15, 0.15] : [0.80, 0.12, 0.08]);
+    ['Moth (Thiêu thân)', 'Fly (Ruồi)', 'Mosquito (Muỗi)'].forEach((pt, ti) => {
+      const target = ti === 0 ? 160 : 10;
+      split(byType[ti], LIGHT.map(l => l[3])).forEach((areaCount, ai) => {
+        const [area, traps, tw] = LIGHT[ai];
+        split(areaCount, tw).forEach((c, k) => {
+          let note = '';
+          if (traps[k] === 'L01' && ti === 0 && m === 2) note = 'Gần cửa số 1 (cửa xe nâng) — cửa mở kéo dài';
+          if (traps[k] === 'L01' && ti === 0 && m === 6) note = 'Tổng côn trùng bay vượt target 200/tháng — đã mở CAPA';
+          add(m, area, pt, c, traps[k], 'Light Trap', target, note);
+        });
+      });
+    });
+  });
+
+  // D. Bẫy keo thằn lằn & côn trùng bò. T01–T03 = 7/19/18 (báo cáo: toàn bộ là kiến, dế...).
+  const CRAWL = [7, 19, 18, 22, 30, 36, 41, 38, 31, 24, 17, 12];
+  const GLUE = [ // khu vực, mã bẫy, trọng số (theo T03), target/tháng (theo báo cáo)
+    ['Raw Material WH', 'G07', 7, 12], ['Finished Goods WH', 'G21', 2, 8], ['Roasting', 'G33', 0.5, 3],
+    ['Packing', 'G41', 3, 13], ['Tipping', 'G52', 1, 2], ['Office/Canteen', 'G64', 5, 7], ['Utilities', 'G72', 0.5, 3],
+  ];
+  CRAWL.forEach((total, m) => {
+    const byType = split(total, m < 3 ? [1, 0, 0] : [0.62, 0.20, 0.18]);
+    ['Ant (Kiến)', 'Cockroach (Gián)', 'Lizard (Thằn lằn)'].forEach((pt, ti) => {
+      split(byType[ti], GLUE.map(g => g[2])).forEach((c, ai) => {
+        const [area, trap, , target] = GLUE[ai];
+        const note = pt.startsWith('Lizard') && area === 'Finished Goods WH' && c > 0 ? 'Vách kho co rút keo silicone — khe hở' : '';
+        add(m, area, pt, c, trap, 'Glue Trap', target, note);
+      });
+    });
+  });
+
+  // B & C. Chuột — hoạt động tại trạm bả ngoài + 2 lần bắt được bên trong (T08, T09).
+  const BAIT = [2, 3, 2, 2, 3, 3, 4, 4, 3, 2, 1, 1];
+  BAIT.forEach((total, m) => {
+    const [per, util] = split(total, [0.7, 0.3]);
+    split(per, [1, 1, 0.6]).forEach((c, k) => add(m, 'Perimeter', 'Rodent (Chuột)', c, ['B03', 'B11', 'B17'][k], 'Bait Station', 7, c ? 'Bả bị ăn — đã thay bả mới' : ''));
+    add(m, 'Utilities', 'Rodent (Chuột)', util, 'B24', 'Bait Station', 7, util ? 'Bả bị ăn — khu phụ trợ' : '');
+  });
+  add(7, 'Raw Material WH', 'Rodent (Chuột)', 1, 'G09', 'Glue Trap', 0, 'Bắt được 1 chuột bên trong kho NL — nghi xâm nhập qua mương thoát nước');
+  add(8, 'Tipping', 'Rodent (Chuột)', 1, 'G53', 'Glue Trap', 0, 'Bắt được 1 chuột tại khu Tipping');
+
+  // E. Mọt kho — bẫy pheromone (target 5/tháng); T06–T09 vượt.
+  const SPI = [0, 0, 0, 1, 2, 4, 7, 8, 6, 3, 2, 0];
+  const SPECIES = ['Mọt cà phê', 'Mọt thóc đỏ', 'Mọt răng cưa'];
+  SPI.forEach((total, m) => {
+    split(total, [0.8, 0.2]).forEach((c, ai) => {
+      const traps = ai === 0 ? ['P01', 'P02', 'P03', 'P04', 'P05', 'P06'] : ['P07', 'P08'];
+      split(c, traps.map(() => 1)).forEach((cc, k) =>
+        add(m, ai === 0 ? 'Raw Material WH' : 'Finished Goods WH', 'Mite/Beetle (Mọt)', cc, traps[k], 'Pheromone Trap', 2, cc ? SPECIES[(m + k) % 3] : ''));
+    });
+  });
+
+  // CAPA: 3 đề xuất trong báo cáo 03/2025 + các hành động giả lập, đủ 4 trạng thái.
+  const capa = [
+    { id: 1, desc: 'Khe hở mái kho thành phẩm — nguy cơ chim sẻ xâm nhập từ phía trên', root: 'Structural Gap', owner: 'Bảo trì', due: '2025-04-15', priority: 'High', status: 'overdue', created: '2025-04-04' },
+    { id: 2, desc: 'Vách kho co rút keo silicone — trám lại bằng keo mới', root: 'Structural Gap', owner: 'QA & Nguyễn Dương', due: '2025-04-30', priority: 'Medium', status: 'closed', created: '2025-04-04' },
+    { id: 3, desc: 'Cửa số 1 (xe nâng) mở kéo dài — nhắc nhân viên kho đóng cửa ngay sau khi dùng', root: 'Door/Window Open', owner: 'Trưởng kho', due: '2025-04-05', priority: 'Medium', status: 'progress', created: '2025-04-04' },
+    { id: 4, desc: 'Côn trùng bay T07 vượt target (214/200) — bổ sung rèm nhựa cửa nhập hàng kho NL', root: 'Door/Window Open', owner: 'QA Manager', due: '2025-08-31', priority: 'High', status: 'open', created: '2025-08-04' },
+    { id: 5, desc: 'Bắt được chuột trong kho NL (G09) — kiểm tra & bịt lưới mương thoát nước', root: 'Structural Gap', owner: 'Bảo trì', due: '2025-09-10', priority: 'Critical', status: 'progress', created: '2025-09-03' },
+    { id: 6, desc: 'Mọt kho vượt target T07–T08 — vệ sinh sâu khu pallet nhân xanh, luân chuyển FIFO', root: 'Poor Sanitation', owner: 'Kho nguyên liệu', due: '2025-09-30', priority: 'High', status: 'open', created: '2025-09-03' },
+    { id: 7, desc: 'Kiến tại khu rửa tay — xử lý nước đọng dưới bồn', root: 'Moisture Source', owner: 'Vệ sinh', due: '2025-03-20', priority: 'Low', status: 'closed', created: '2025-03-06' },
+    { id: 8, desc: 'Gián tại khu Tipping — vệ sinh cà phê rơi vãi cuối ca', root: 'Food Residue', owner: 'Tổ trưởng Tipping', due: '2025-06-15', priority: 'Medium', status: 'closed', created: '2025-06-02' },
+    { id: 9, desc: 'Bổ sung 2 đèn bẫy côn trùng tại lối vào xưởng', root: 'Inadequate Monitoring', owner: 'Nguyễn Dương', due: '2025-05-15', priority: 'Medium', status: 'closed', created: '2025-04-20' },
+  ];
+  return { records, capa };
+}
+
 // ── SERVER CONFIG ──
 // Điền URL Worker sau khi deploy (npx wrangler deploy). Có thể ghi đè trong Settings.
 const DEFAULT_API_BASE = 'https://pestguard-api.dangthanhbinh53.workers.dev';
@@ -1475,8 +1600,54 @@ let auditMode = false;
 let charts = {};
 
 // localStorage giữ bản sao để xem offline; server (nếu cấu hình) là nguồn chính.
-function saveData() { localStorage.setItem('pestguard_data',JSON.stringify(appData)); updateLastUpdated(); schedulePush('records'); }
-function saveCapa() { localStorage.setItem('pestguard_capa',JSON.stringify(capaData)); schedulePush('capa'); }
+// Trong chế độ demo, thay đổi chỉ nằm trong bộ nhớ — không ghi localStorage hay server.
+function saveData() { updateLastUpdated(); if (demoMode) return; localStorage.setItem('pestguard_data',JSON.stringify(appData)); schedulePush('records'); }
+function saveCapa() { if (demoMode) return; localStorage.setItem('pestguard_capa',JSON.stringify(capaData)); schedulePush('capa'); }
+
+// ── DEMO MODE ──
+let demoMode = false, demoBackup = null, demoIdx = 0;
+const DEMO_STEPS = [
+  ['executive', '<strong>Executive Dashboard</strong> — KPI tổng hợp, vòng Risk Score, đèn tín hiệu 4 nhóm, xu hướng 12 tháng, cơ cấu theo nhóm và tổng theo khu vực.'],
+  ['flying', '<strong>Côn trùng bay</strong> — T07 vượt target 200 (đường Target / Alert / Action), Top 10 đèn bẫy (L01 gần cửa số 1 cao nhất), Pareto theo loài, biểu đồ mùa vụ.'],
+  ['rodent', '<strong>Chuột</strong> — Hoạt động tại trạm bả bên ngoài, 2 lần bắt được chuột bên trong (T08 kho NL, T09 Tipping), áp lực theo khu vực.'],
+  ['crawling', '<strong>Côn trùng bò &amp; thằn lằn</strong> — Theo khu vực, xu hướng so với target, Pareto loài, nguyên nhân gốc.'],
+  ['spi', '<strong>Mọt kho (SPI)</strong> — Bẫy pheromone kho NL / kho TP; T06–T09 vượt target 5/tháng; đồng hồ rủi ro kho.'],
+  ['heatmap', '<strong>Heatmap</strong> — Kho nguyên liệu là điểm nóng. <em>Nhấp vào một khu vực</em> để xem lịch sử 12 tháng của khu đó.'],
+  ['trend', '<strong>Phân tích xu hướng</strong> — Đổi nhóm và kỳ 12/24 tháng; có trung bình 3 tháng, dự báo 3 tháng tới và chỉ số mùa vụ.'],
+  ['capa', '<strong>CAPA</strong> — 3 đề xuất trong báo cáo 03/2025 (mái kho TP, vách co keo, cửa số 1) và các hành động khác, đủ 4 trạng thái. Thử lọc, đóng hoặc thêm CAPA.'],
+  ['audit', '<strong>Audit Compliance</strong> — Điểm BRCGS / FSSC 22000 / AIB, radar và checklist. Bấm <em>Audit View</em> trên thanh trên cùng để vào chế độ trình chiếu.'],
+  ['data', '<strong>Quản lý dữ liệu</strong> — Tìm kiếm, lọc theo tháng / khu vực / loài, sửa trực tiếp, xuất Excel / CSV / JSON. Thay đổi trong demo <em>không</em> được lưu.'],
+];
+
+function toggleDemo() {
+  if (!demoMode) {
+    clearTimeout(pushTimers.records); clearTimeout(pushTimers.capa);
+    demoBackup = { records: appData, capa: capaData };
+    const d = buildDemoData();
+    appData = d.records; capaData = d.capa;
+    demoMode = true; demoIdx = 0;
+    setSyncStatus('Đang xem dữ liệu demo — không ghi lên server', 'yellow');
+  } else {
+    appData = demoBackup.records; capaData = demoBackup.capa; demoBackup = null;
+    demoMode = false;
+  }
+  document.getElementById('demoBar').classList.toggle('active', demoMode);
+  document.getElementById('demoBtn').innerHTML = demoMode ? '<i class="fas fa-stop"></i> Thoát demo' : '<i class="fas fa-play"></i> Demo';
+  updateFilters();
+  if (demoMode) demoGo(0);
+  else { switchTab('executive'); syncFromServer(); }
+}
+
+function demoGo(step) {
+  demoIdx = Math.min(DEMO_STEPS.length - 1, Math.max(0, demoIdx + step));
+  const [tab, text] = DEMO_STEPS[demoIdx];
+  document.getElementById('demoStep').textContent = `DEMO ${demoIdx + 1}/${DEMO_STEPS.length}`;
+  document.getElementById('demoText').innerHTML = text;
+  document.getElementById('demoPrev').disabled = demoIdx === 0;
+  document.getElementById('demoNext').disabled = demoIdx === DEMO_STEPS.length - 1;
+  switchTab(tab);
+  if (tab === 'heatmap') setTimeout(() => showZoneHistory('Raw Material WH'), 120);
+}
 
 // ── SERVER SYNC (Cloudflare Worker + D1) ──
 const pushTimers = {};
@@ -1539,12 +1710,14 @@ async function syncFromServer(manual) {
   setSyncStatus('Đang tải từ server…', 'yellow');
   try {
     const d = await apiFetch('/api/data');
+    if (demoMode) { demoBackup = { records: d.records, capa: d.capa }; return; }
     appData = d.records; capaData = d.capa;
     localStorage.setItem('pestguard_data', JSON.stringify(appData));
     localStorage.setItem('pestguard_capa', JSON.stringify(capaData));
     if (d.updatedAt) document.getElementById('lastUpdated').textContent =
       new Date(d.updatedAt).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})+' '+new Date(d.updatedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
-    setSyncStatus(adminKey ? 'Đã kết nối server (quản trị)' : 'Đã kết nối server (chỉ xem)', 'green');
+    if (!appData.length) setSyncStatus('Server chưa có dữ liệu — bấm Demo để xem thử', 'yellow');
+    else setSyncStatus(adminKey ? 'Đã kết nối server (quản trị)' : 'Đã kết nối server (chỉ xem)', 'green');
     if (typeof updateFilters === 'function') updateFilters();
     refreshAllCharts();
   } catch (e) {
@@ -1861,7 +2034,7 @@ function renderHeatmap() {
     {area:'Tipping',x:43,y:30,w:20,h:20},
     {area:'Office/Canteen',x:5,y:55,w:30,h:18},
     {area:'Utilities',x:37,y:55,w:16,h:18},
-    {area:'Perimeter',x:55,y:5,w:12,h:68},
+    {area:'Perimeter',x:65,y:5,w:12,h:68},
   ];
   
   map.innerHTML = zones.map(z=>{

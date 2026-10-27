@@ -1,0 +1,15 @@
+name = "pestguard-api"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+[vars]
+# Các origin được phép gọi API (phân cách bằng dấu phẩy).
+ALLOWED_ORIGINS = "https://binhfoodsafety.github.io,http://localhost:8080,http://127.0.0.1:8080"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "pestguard-db"
+database_id = "ef0bf185-d74a-49d5-9abd-c2bc78c19e3e"
+
+# ADMIN_KEY là secret, đặt bằng: npx wrangler secret put ADMIN_KEY
+# Khi chạy local, đặt trong file backend/.dev.vars (không commit).

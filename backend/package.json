@@ -1,0 +1,18 @@
+{
+  "name": "pestguard-api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "deploy": "wrangler deploy",
+    "db:init:local": "wrangler d1 execute pestguard-db --local --file=schema.sql",
+    "db:init:remote": "wrangler d1 execute pestguard-db --remote --file=schema.sql"
+  },
+  "devDependencies": {
+    "wrangler": "^4.40.0"
+  },
+  "allowScripts": {
+    "workerd@1.20261023.1": true,
+    "esbuild@0.28.2": true
+  }
+}
